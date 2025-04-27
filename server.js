@@ -12,7 +12,7 @@ const server = http.createServer(app);
 
 
 app.use(cors({
-    origin: 'https://www.ssbtechnology.co.in',  // Replace with your client-side URL
+    origin: '*',  // Replace with your client-side URL
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type'],
     credentials: true  // Allow cookies if needed
