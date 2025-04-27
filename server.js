@@ -23,7 +23,7 @@ app.use(express.json());
 connectDB();
 
 // API Routes
-app.use('/remote-support/api/auth', authRoutes);
+app.use('/ssb-remote-support/api/auth', authRoutes);
 
 // Start main API server
 const API_PORT = process.env.PORT || 5002;
