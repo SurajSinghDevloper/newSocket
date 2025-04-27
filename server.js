@@ -10,13 +10,12 @@ const connectDB = require('./config/db');
 const app = express();
 const server = http.createServer(app);
 
-// CORS Configuration for Socket.IO
 const io = socketIO(server, {
     cors: {
-        origin: '*',  // Replace with your client-side URL
+        origin: '*',
         methods: ['GET', 'POST'],
         allowedHeaders: ['Content-Type'],
-        credentials: true  // Allow cookies if needed
+        credentials: true
     }
 });
 
