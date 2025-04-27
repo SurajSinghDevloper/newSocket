@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const http = require('http');
+const socketIO = require('socket.io');
 const authRoutes = require('./routes/auth');
 const socketHandler = require('./socket');
 const connectDB = require('./config/db');
@@ -9,7 +10,15 @@ const connectDB = require('./config/db');
 const app = express();
 const server = http.createServer(app);
 
-
+// CORS Configuration for Socket.IO
+const io = socketIO(server, {
+    cors: {
+        origin: '*',  // Replace with your client-side URL
+        methods: ['GET', 'POST'],
+        allowedHeaders: ['Content-Type'],
+        credentials: true  // Allow cookies if needed
+    }
+});
 
 app.use(cors({
     origin: '*',  // Replace with your client-side URL
