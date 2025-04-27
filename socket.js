@@ -63,7 +63,7 @@ const socketHandler = (io) => {
                 return;
             }
 
-            console.log(`Received screen data for room: ${data}`);
+            console.log(`Received screen data for room: ${JSON.stringify(data)}`);
             socket.to(data.code).emit('screen-data', data);
         });
 
