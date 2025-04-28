@@ -227,6 +227,7 @@
 // module.exports = socketHandler
 
 
+// socket.js
 const socketHandler = (io) => {
     // Track rooms and connections
     const rooms = {}
@@ -303,10 +304,6 @@ const socketHandler = (io) => {
 
             // Forward screen data to clients in the room
             socket.to(data.code).emit("screen-data", data)
-
-            // Log data size for debugging (but not the entire image data)
-            const dataSize = data.image ? Math.round(data.image.length / 1024) : 0
-            console.log(`Screen data sent to room ${data.code}: ${dataSize}KB`)
         })
 
         // Screen data received acknowledgment
@@ -322,10 +319,10 @@ const socketHandler = (io) => {
             }
         })
 
-        // Unified control event handler (mouse and keyboard)
-        socket.on("control-event", (data) => {
+        // Mouse move event
+        socket.on("mouse-move", (data) => {
             if (!data || !data.code) {
-                console.log("Error: Invalid control event data received")
+                console.log("Error: Invalid mouse move data")
                 return
             }
 
@@ -336,7 +333,43 @@ const socketHandler = (io) => {
 
             // Forward to the host
             if (rooms[data.code] && rooms[data.code].host) {
-                io.to(rooms[data.code].host).emit("control-event", data)
+                io.to(rooms[data.code].host).emit("mouse-move", data)
+            }
+        })
+
+        // Mouse click event
+        socket.on("mouse-click", (data) => {
+            if (!data || !data.code) {
+                console.log("Error: Invalid mouse click data")
+                return
+            }
+
+            // Update room activity timestamp
+            if (rooms[data.code]) {
+                rooms[data.code].lastActivity = Date.now()
+            }
+
+            // Forward to the host
+            if (rooms[data.code] && rooms[data.code].host) {
+                io.to(rooms[data.code].host).emit("mouse-click", data)
+            }
+        })
+
+        // Key press event
+        socket.on("key-press", (data) => {
+            if (!data || !data.code) {
+                console.log("Error: Invalid key press data")
+                return
+            }
+
+            // Update room activity timestamp
+            if (rooms[data.code]) {
+                rooms[data.code].lastActivity = Date.now()
+            }
+
+            // Forward to the host
+            if (rooms[data.code] && rooms[data.code].host) {
+                io.to(rooms[data.code].host).emit("key-press", data)
             }
         })
 
@@ -356,16 +389,6 @@ const socketHandler = (io) => {
                     })
                 })
             }
-        })
-
-        // Clipboard Sharing
-        socket.on("clipboard-copy", (data) => {
-            if (!data || !data.code || !data.text) {
-                console.log("Error: Invalid clipboard data received")
-                return
-            }
-
-            socket.to(data.code).emit("clipboard-copy", data)
         })
 
         // Disconnect Event
