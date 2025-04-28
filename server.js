@@ -4,7 +4,7 @@ const { Server } = require("socket.io")
 const cors = require("cors")
 const authRoutes = require("./routes/auth")
 const connectDB = require("./config/db")
-const socketHandler = require("./socket-handler")
+const socketHandler = require("./socket")
 
 // Initialize Express app
 const app = express()
