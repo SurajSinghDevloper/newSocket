@@ -1,65 +1,11 @@
-// const express = require('express');
-// const http = require('http');
-// const { Server } = require('socket.io');
-// const cors = require('cors');
-// const socketHandler = require('./socket');
-// const authRoutes = require('./routes/auth');
-// const connectDB = require('./config/db');
-
-// // Initialize main Express app
-// const app = express();
-// const mainServer = http.createServer(app);
-
-// // Configure Express middleware
-// app.use(cors({
-//     origin: '*',
-//     methods: ['GET', 'POST'],
-//     allowedHeaders: ['Content-Type'],
-//     credentials: true
-// }));
-// app.use(express.json());
-
-// // Database connection
-// connectDB();
-
-// // API Routes
-// app.use('/ssb-remote-support/api/auth', authRoutes);
-
-// // Start main API server
-// const API_PORT = process.env.PORT || 5002;
-// mainServer.listen(API_PORT, () => {
-//     console.log(`Main API server running on port ${API_PORT}`);
-
-//     // Start Socket.IO server after main server starts
-//     const socketServer = http.createServer();
-//     const io = new Server(socketServer, {
-//         path: '/socket.io/',
-//         cors: {
-//             origin: '*',
-//             methods: ['GET', 'POST'],
-//             credentials: true
-//         }
-//     });
-
-//     // Initialize socket handler
-//     socketHandler(io);
-
-//     // Start Socket.IO server
-//     const SOCKET_PORT = process.env.SOCKET_PORT || 5001;
-//     socketServer.listen(SOCKET_PORT, () => {
-//         console.log(`Socket server running on port ${SOCKET_PORT}`);
-//     });
-// });
-
-
 const express = require("express")
 const http = require("http")
-const { Server } = require("socket.io")
 const cors = require("cors")
+const SocketServer = require("./socket")
 const authRoutes = require("./routes/auth")
 const connectDB = require("./config/db")
 
-// Initialize main Express app
+// Initialize Express app
 const app = express()
 const mainServer = http.createServer(app)
 
@@ -82,28 +28,20 @@ app.use("/ssb-remote-support/api/auth", authRoutes)
 
 // Start main API server
 const API_PORT = process.env.PORT || 5002
-mainServer.listen(API_PORT, () => {
+mainServer.listen(API_PORT, async () => {
     console.log(`Main API server running on port ${API_PORT}`)
 
-    // Start Socket.IO server after main server starts
-    const socketServer = http.createServer()
-    const io = new Server(socketServer, {
-        path: "/socket.io/",
-        cors: {
-            origin: "*",
-            methods: ["GET", "POST"],
-            credentials: true,
-        },
-        maxHttpBufferSize: 5e6, // 5MB buffer size for larger payloads
-        pingTimeout: 60000, // Increase timeout for better connection stability
+    // Initialize and start Socket.IO server with dual channels
+    const socketServer = new SocketServer({
+        port: process.env.SOCKET_PORT || 5001,
+        redisUrl: process.env.REDIS_URL || null,
+        maxBufferSize: 10e6, // 10MB
+        pingInterval: 10000,
+        pingTimeout: 5000,
     })
 
-    // Initialize socket handler
-    require("./socket")(io)
+    await socketServer.initialize()
 
-    // Start Socket.IO server
-    const SOCKET_PORT = process.env.SOCKET_PORT || 5001
-    socketServer.listen(SOCKET_PORT, () => {
-        console.log(`Socket server running on port ${SOCKET_PORT}`)
-    })
+    // Start cleanup interval for inactive rooms (30 minutes)
+    socketServer.startCleanupInterval(30 * 60 * 1000)
 })
