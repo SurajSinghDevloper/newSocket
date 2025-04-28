@@ -1,14 +1,17 @@
-/**
- * Enhanced Socket Server for Remote Support Application
- * Handles all socket.io events for remote control functionality
- */
-
 // Track rooms and connections
 const rooms = {}
 
+// Create separate namespaces for control and screen data
 const socketHandler = (io) => {
-    io.on("connection", (socket) => {
-        console.log("New client connected:", socket.id)
+    // Control namespace - optimized for low latency
+    const controlNamespace = io.of("/control")
+
+    // Screen namespace - optimized for bandwidth
+    const screenNamespace = io.of("/screen")
+
+    // Control socket handlers
+    controlNamespace.on("connection", (socket) => {
+        console.log("New control client connected:", socket.id)
 
         // Join Room by Code
         socket.on("join-room", (data) => {
@@ -16,13 +19,12 @@ const socketHandler = (io) => {
 
             if (!code) {
                 console.log("Error: Missing room code for join")
-                socket.emit("error", { message: "Room code is required" })
                 return
             }
 
             // Leave previous rooms if any
             if (socket.currentRoom) {
-                leaveRoom(socket, socket.currentRoom)
+                leaveRoom(socket, socket.currentRoom, controlNamespace, screenNamespace)
             }
 
             // Join the new room
@@ -36,19 +38,25 @@ const socketHandler = (io) => {
                     host: null,
                     clients: [],
                     lastActivity: Date.now(),
-                    screenSize: { width: 1280, height: 720 },
                 }
             }
 
-            // Determine if this is host or client
+            // Determine if this is host or client based on role
             if (role === "host") {
-                // Register as host
                 rooms[code].host = socket.id
                 socket.isHost = true
                 console.log(`${socket.id} joined room ${code} as host`)
                 socket.emit("room-joined", { room: code, role: "host" })
+
+                // Notify all clients in the room that a host has connected
+                rooms[code].clients.forEach((clientId) => {
+                    controlNamespace.to(clientId).emit("host-connected", {
+                        room: code,
+                        hostId: socket.id,
+                    })
+                })
             } else {
-                // Register as client
+                // Client connection
                 rooms[code].clients.push(socket.id)
                 socket.isHost = false
                 console.log(`${socket.id} joined room ${code} as client`)
@@ -56,7 +64,7 @@ const socketHandler = (io) => {
 
                 // Notify host that a client has connected
                 if (rooms[code].host) {
-                    io.to(rooms[code].host).emit("client-connected", {
+                    controlNamespace.to(rooms[code].host).emit("client-connected", {
                         room: code,
                         clientId: socket.id,
                     })
@@ -74,81 +82,7 @@ const socketHandler = (io) => {
             console.log(`Room ${code} status:`, rooms[code])
         })
 
-        // Screen Size Update
-        socket.on("screen-size", (data) => {
-            if (!data || !data.code) {
-                console.log("Error: Invalid screen size data")
-                return
-            }
-
-            // Store screen size in room
-            if (rooms[data.code]) {
-                rooms[data.code].screenSize = {
-                    width: data.width,
-                    height: data.height,
-                }
-
-                // Update room activity timestamp
-                rooms[data.code].lastActivity = Date.now()
-
-                // Broadcast to clients
-                socket.to(data.code).emit("screen-size", {
-                    width: data.width,
-                    height: data.height,
-                })
-            }
-        })
-
-        // Quality Settings
-        socket.on("quality-settings", (data) => {
-            if (!data || !data.code) {
-                console.log("Error: Invalid quality settings data")
-                return
-            }
-
-            // Update room activity timestamp
-            if (rooms[data.code]) {
-                rooms[data.code].lastActivity = Date.now()
-
-                // Broadcast to clients
-                socket.to(data.code).emit("quality-settings", {
-                    quality: data.quality,
-                    frameRate: data.frameRate,
-                })
-            }
-        })
-
-        // Screen Share Stream - optimized for reducing latency
-        socket.on("screen-data", (data) => {
-            if (!data || !data.code || !data.image) {
-                console.log("Error: Invalid screen data received")
-                return
-            }
-
-            // Update room activity timestamp
-            if (rooms[data.code]) {
-                rooms[data.code].lastActivity = Date.now()
-            }
-
-            // Forward screen data to clients in the room
-            // Use volatile for potential frame dropping if needed
-            socket.to(data.code).volatile.emit("screen-data", data)
-        })
-
-        // Screen data received acknowledgment
-        socket.on("screen-data-received", (data) => {
-            if (!data || !data.code || !data.frameId) {
-                console.log("Error: Invalid screen data acknowledgment")
-                return
-            }
-
-            // Forward acknowledgment to the host
-            if (rooms[data.code] && rooms[data.code].host) {
-                io.to(rooms[data.code].host).emit("screen-data-received", data)
-            }
-        })
-
-        // Mouse move event - highest priority
+        // Mouse move event
         socket.on("mouse-move", (data) => {
             if (!data || !data.code) {
                 console.log("Error: Invalid mouse move data")
@@ -160,9 +94,9 @@ const socketHandler = (io) => {
                 rooms[data.code].lastActivity = Date.now()
             }
 
-            // Forward to the host - use volatile to allow dropping packets if needed
+            // Forward to the host
             if (rooms[data.code] && rooms[data.code].host) {
-                io.to(rooms[data.code].host).volatile.emit("mouse-move", data)
+                controlNamespace.to(rooms[data.code].host).emit("mouse-move", data)
             }
         })
 
@@ -178,49 +112,13 @@ const socketHandler = (io) => {
                 rooms[data.code].lastActivity = Date.now()
             }
 
-            // Forward to the host - important, so not volatile
-            if (rooms[data.code] && rooms[data.code].host) {
-                io.to(rooms[data.code].host).emit("mouse-click", data)
-            }
-        })
-
-        // Mouse double click event
-        socket.on("mouse-double-click", (data) => {
-            if (!data || !data.code) {
-                console.log("Error: Invalid mouse double click data")
-                return
-            }
-
-            // Update room activity timestamp
-            if (rooms[data.code]) {
-                rooms[data.code].lastActivity = Date.now()
-            }
-
             // Forward to the host
             if (rooms[data.code] && rooms[data.code].host) {
-                io.to(rooms[data.code].host).emit("mouse-double-click", data)
+                controlNamespace.to(rooms[data.code].host).emit("mouse-click", data)
             }
         })
 
-        // Mouse scroll event
-        socket.on("mouse-scroll", (data) => {
-            if (!data || !data.code) {
-                console.log("Error: Invalid mouse scroll data")
-                return
-            }
-
-            // Update room activity timestamp
-            if (rooms[data.code]) {
-                rooms[data.code].lastActivity = Date.now()
-            }
-
-            // Forward to the host - can be volatile for smoother experience
-            if (rooms[data.code] && rooms[data.code].host) {
-                io.to(rooms[data.code].host).volatile.emit("mouse-scroll", data)
-            }
-        })
-
-        // Key press event - important for accurate typing
+        // Key press event
         socket.on("key-press", (data) => {
             if (!data || !data.code) {
                 console.log("Error: Invalid key press data")
@@ -232,9 +130,9 @@ const socketHandler = (io) => {
                 rooms[data.code].lastActivity = Date.now()
             }
 
-            // Forward to the host - important to not miss keystrokes
+            // Forward to the host
             if (rooms[data.code] && rooms[data.code].host) {
-                io.to(rooms[data.code].host).emit("key-press", data)
+                controlNamespace.to(rooms[data.code].host).emit("key-press", data)
             }
         })
 
@@ -245,17 +143,80 @@ const socketHandler = (io) => {
                 return
             }
 
-            // Forward to all clients in the room - can be volatile
-            socket.to(data.code).volatile.emit("cursor-position", {
-                x: data.x,
-                y: data.y,
-            })
+            // Forward to all clients in the room
+            if (rooms[data.code]) {
+                socket.to(data.code).emit("cursor-position", {
+                    x: data.x,
+                    y: data.y,
+                })
+            }
         })
 
-        // Clipboard sharing
-        socket.on("clipboard-data", (data) => {
-            if (!data || !data.code || !data.text) {
-                console.log("Error: Invalid clipboard data")
+        // Screen dimensions from host to client
+        socket.on("screen-dimensions", (data) => {
+            if (!data || !data.code) {
+                console.log("Error: Invalid screen dimensions data")
+                return
+            }
+
+            // Forward to all clients in the room
+            if (rooms[data.code]) {
+                socket.to(data.code).emit("screen-dimensions", {
+                    width: data.width,
+                    height: data.height,
+                })
+            }
+        })
+
+        // Screen data received acknowledgment
+        socket.on("screen-data-received", (data) => {
+            if (!data || !data.code || !data.frameId) {
+                console.log("Error: Invalid screen data acknowledgment")
+                return
+            }
+
+            // Forward acknowledgment to the host
+            if (rooms[data.code] && rooms[data.code].host) {
+                controlNamespace.to(rooms[data.code].host).emit("screen-data-received", data)
+            }
+        })
+
+        // Disconnect Event
+        socket.on("disconnect", () => {
+            console.log("Control client disconnected:", socket.id)
+
+            // Handle room cleanup if the socket was in a room
+            if (socket.currentRoom) {
+                leaveRoom(socket, socket.currentRoom, controlNamespace, screenNamespace)
+            }
+        })
+    })
+
+    // Screen socket handlers
+    screenNamespace.on("connection", (socket) => {
+        console.log("New screen client connected:", socket.id)
+
+        // Join Room by Code
+        socket.on("join-room", (data) => {
+            const { code, role } = data
+
+            if (!code) {
+                console.log("Error: Missing room code for join")
+                return
+            }
+
+            // Join the new room
+            socket.join(code)
+            socket.currentRoom = code
+            socket.role = role
+
+            console.log(`Screen socket ${socket.id} joined room ${code} as ${role}`)
+        })
+
+        // Screen Share Stream
+        socket.on("screen-data", (data) => {
+            if (!data || !data.code || !data.image) {
+                console.log("Error: Invalid screen data received")
                 return
             }
 
@@ -264,26 +225,19 @@ const socketHandler = (io) => {
                 rooms[data.code].lastActivity = Date.now()
             }
 
-            // Forward to everyone else in the room
-            socket.to(data.code).emit("clipboard-data", {
-                text: data.text,
-                sender: socket.id,
-            })
+            // Forward screen data to clients in the room
+            socket.to(data.code).emit("screen-data", data)
         })
 
         // Disconnect Event
         socket.on("disconnect", () => {
-            console.log("Client disconnected:", socket.id)
-
-            // Handle room cleanup if the socket was in a room
-            if (socket.currentRoom) {
-                leaveRoom(socket, socket.currentRoom)
-            }
+            console.log("Screen client disconnected:", socket.id)
+            socket.currentRoom = null
         })
     })
 
     // Helper function to handle room leaving logic
-    function leaveRoom(socket, roomCode) {
+    function leaveRoom(socket, roomCode, controlNs, screenNs) {
         const room = rooms[roomCode]
         if (!room) return
 
@@ -293,7 +247,7 @@ const socketHandler = (io) => {
 
             // Notify all clients in the room
             room.clients.forEach((clientId) => {
-                io.to(clientId).emit("host-disconnected", { room: roomCode })
+                controlNs.to(clientId).emit("host-disconnected", { room: roomCode })
             })
 
             console.log(`Host ${socket.id} left room ${roomCode}`)
@@ -305,7 +259,7 @@ const socketHandler = (io) => {
 
                 // Notify the host
                 if (room.host) {
-                    io.to(room.host).emit("client-disconnected", {
+                    controlNs.to(room.host).emit("client-disconnected", {
                         room: roomCode,
                         clientId: socket.id,
                     })
@@ -337,11 +291,11 @@ const socketHandler = (io) => {
                 if (now - room.lastActivity > inactiveThreshold) {
                     // Room is inactive, clean it up
                     if (room.host) {
-                        io.to(room.host).emit("room-expired", { room: roomCode })
+                        controlNamespace.to(room.host).emit("room-expired", { room: roomCode })
                     }
 
                     room.clients.forEach((clientId) => {
-                        io.to(clientId).emit("room-expired", { room: roomCode })
+                        controlNamespace.to(clientId).emit("room-expired", { room: roomCode })
                     })
 
                     delete rooms[roomCode]
@@ -349,8 +303,8 @@ const socketHandler = (io) => {
                 }
             })
         },
-        30 * 60 * 1000, // Check every 30 minutes
-    )
+        30 * 60 * 1000,
+    ) // Check every 30 minutes
 }
 
 module.exports = socketHandler
